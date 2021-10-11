@@ -1,4 +1,3 @@
-import sqlite3, { Statement } from 'sqlite3';
 import { Client, Guild, GuildManager, Intents} from 'discord.js';
 import {Mutex, MutexInterface, Semaphore, SemaphoreInterface, withTimeout} from 'async-mutex';
 import { compileFunction } from 'vm';
@@ -25,15 +24,11 @@ const rest = new REST({ version: '9' }).setToken(discordConfig.token);
 
 const dbMutex = new Mutex;
 
-var db = new sqlite3.Database('./main.db');
 
 export async function instantiate()
 {
     let releaseGuildTable = await dbMutex.acquire();
     console.log("Creating guilds table.");
-    db.exec("CREATE TABLE IF NOT EXISTS guilds ( id INTEGER PRIMARY KEY, name TEXT NOT NULL);", async (err : Error) => {
-        releaseGuildTable();
-    })
     console.log("Creating channel table.");
         
 }
@@ -48,10 +43,6 @@ export async function addGuilds(gM : GuildManager)
     	.then(() => console.log('Successfully registered application commands with guild ID: %d', guildCache.id))
     	.catch(console.error);
 
-       db.run('INSERT INTO guilds (id, name) VALUES (?, ?)', guild.id, guild.name, (result, err) => 
-        {
-            release();
-        })
     });
     gM.cache.forEach( async guildCache => 
     {

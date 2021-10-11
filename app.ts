@@ -10,15 +10,14 @@ var events = require('events');
 var eventEmitter = new events.EventEmitter();
 
 import ytdl from 'ytdl-core'
+
+const client = new Client({intents:['GUILD_MESSAGES','GUILD_VOICE_STATES','GUILDS']});
+
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 const ffmpeg = require('fluent-ffmpeg');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const client = new Client({intents:['GUILD_MESSAGES','GUILD_VOICE_STATES','GUILDS']});
-
 import * as voice from '@discordjs/voice';
-import { serialize } from 'v8';
-import { removeAllListeners } from 'process';
 import internal from 'stream';
 const audioPlayer = voice.createAudioPlayer();
 var resource;
@@ -50,7 +49,8 @@ async function playNext(url:string, channelId : string, guild: Guild)
         connection = voice.joinVoiceChannel({
             channelId: channelId,
             guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
+            //@tts-ignore
+            adapterCreator: guild.voiceAdapterCreator as unknown as voice.DiscordGatewayAdapterCreator,
         });
     
         // Make sure the connection is ready before processing the user's request
@@ -65,10 +65,13 @@ async function playNext(url:string, channelId : string, guild: Guild)
         quality: 'highestaudio'
     });
     stream.removeAllListeners('progress');
-    stream.on('progress',  (chunkLength, downloaded, total) => {
-        const percent = downloaded / total;
-        console.log(percent);
-    });
+    await new Promise((resolve, reject)=>{
+        stream.on('progress',  (chunkLength, downloaded, total) => {
+            const percent = downloaded / total;
+            console.log(percent);
+        });
+        return resolve
+    })
     try{
         resource = voice.createAudioResource(stream);
         console.log("Created resource.");
@@ -163,7 +166,6 @@ client.login(discordConfig.token).then(result => {
     db.addGuilds(client.guilds);
 }).catch( err => console.log(err));
 
-
 eventEmitter.on('process', processQueue);
 
 async function processQueue()
@@ -188,3 +190,4 @@ async function processQueue()
     workingJob = false;
     eventEmitter.emit('process');
 }
+console.log(voice.generateDependencyReport());
