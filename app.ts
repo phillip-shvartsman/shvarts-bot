@@ -19,6 +19,7 @@ const client = new Client({intents:['GUILD_MESSAGES','GUILD_VOICE_STATES','GUILD
 import * as voice from '@discordjs/voice';
 import { serialize } from 'v8';
 import { removeAllListeners } from 'process';
+const { Routes } = require('discord-api-types/v9');
 import internal from 'stream';
 const audioPlayer = voice.createAudioPlayer();
 var resource;
@@ -50,7 +51,7 @@ async function playNext(url:string, channelId : string, guild: Guild)
         connection = voice.joinVoiceChannel({
             channelId: channelId,
             guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
+            adapterCreator: guild.voiceAdapterCreator as unknown as voice.DiscordGatewayAdapterCreator,
         });
     
         // Make sure the connection is ready before processing the user's request
