@@ -1,6 +1,6 @@
 
 import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, DiscordGatewayAdapterCreator, entersState, joinVoiceChannel, VoiceConnection, VoiceConnectionDestroyedState, VoiceConnectionStatus } from '@discordjs/voice'; 
-import { ApplicationCommandPermissionsManager, Client, Guild, GuildManager, Intents, TextBasedChannels } from 'discord.js';
+import { ApplicationCommandPermissionsManager, Client, Guild, GuildManager, Intents, TextBasedChannel, TextBasedChannels } from 'discord.js';
 import * as events from "events"
 import internal from 'stream';
 import ytdl from 'ytdl-core'
@@ -16,8 +16,10 @@ export class playQueue {
     resource : AudioResource;
     queue : {title:string, link:string}[];
     boundProcessQueue : any;
-    constructor(guild:Guild, channelId:string)
+    textChannel : TextBasedChannels;
+    constructor(textChannel:TextBasedChannels, guild:Guild, channelId:string)
     {
+        this.textChannel = textChannel;
         this.guild = guild;
         this.channelId = channelId;
         this.eventEmitter = new events.EventEmitter();
@@ -102,6 +104,7 @@ export class playQueue {
             return;
         }
         this.workingJob = true;
+        this.textChannel.send("Playing: " + job.title);
         this.playNext(job.link);
         console.log("Waiting for song to finish playing.")
         await new Promise((resolve, reject)=>{

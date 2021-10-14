@@ -83,13 +83,21 @@ client.on('interactionCreate', async interaction => {
     if(playQueueIndex == -1)
     {
         console.log("Creating new queue");
-        playQueues.push(new playQueue(guild, voiceChannelId))
+        playQueues.push(new playQueue(interaction.channel, guild, voiceChannelId))
         playQueueIndex = playQueues.length - 1;
     }
     if (commandName === 'queue') {
     
         var link = interaction.options.getString('link');
-        var result = await ytdl.getInfo(link);
+        var result;
+        try {
+            result = await ytdl.getInfo(link);
+        }
+        catch
+        {
+            interaction.reply("Failed to find song with this link.");
+            return
+        }
         var title = result.videoDetails.title;
         console.log('Adding %s to queue', title)
         playQueues[playQueueIndex].addToQueue(title,link)
@@ -108,7 +116,16 @@ client.on('interactionCreate', async interaction => {
     else if(commandName === "test-queue")
     {
         var link = "https://www.youtube.com/watch?v=0bOUOCo6NLQ" 
-        var result = await ytdl.getInfo(link);
+        var result; 
+        try 
+        {
+            result = await ytdl.getInfo(link);
+        }
+        catch
+        {
+            interaction.reply("Link broken!");
+            return
+        }
         var title = result.videoDetails.title;
         console.log('Adding %s to queue', title)
         playQueues[playQueueIndex].addToQueue(title,link)
