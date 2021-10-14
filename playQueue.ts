@@ -4,6 +4,8 @@ import { ApplicationCommandPermissionsManager, Client, Guild, GuildManager, Inte
 import * as events from "events"
 import internal from 'stream';
 import ytdl from 'ytdl-core'
+import config from './config.json'
+import {logger} from './logger'
 
 export class playQueue {
     guild : Guild;
@@ -16,9 +18,16 @@ export class playQueue {
     resource : AudioResource;
     queue : {title:string, link:string}[];
     boundProcessQueue : any;
+    boundIdleCheck : any;
     textChannel : TextBasedChannels;
+    idleCount : number;
+    stale : boolean;
+    idleCheckInterval : NodeJS.Timeout;
+    playQueueId : string;
     constructor(textChannel:TextBasedChannels, guild:Guild, channelId:string)
     {
+        this.playQueueId = guild.id + channelId
+        logger.info('%s: Creating new play queue', this.playQueueId)
         this.textChannel = textChannel;
         this.guild = guild;
         this.channelId = channelId;
@@ -27,13 +36,18 @@ export class playQueue {
         this.workingJob = false;
         this.audioPlayer = createAudioPlayer();
         this.queue = []
-    
+        this.idleCount = 0
+        this.stale = false
+
         this.boundProcessQueue = this.processQueue.bind(this)
+        this.boundIdleCheck = this.checkForIdle.bind(this)
         this.eventEmitter.on('process',this.boundProcessQueue)
+        this.idleCheckInterval = setInterval(this.boundIdleCheck, 60000); 
     }
 
     getQueueString() : string
     {
+        logger.info("%s: Getting queue string") 
         if(this.queue == undefined || this.queue.length == 0)
         {
             return "Queue is empty!";
@@ -57,7 +71,7 @@ export class playQueue {
 
     addToQueue(title:string,link:string) : void
     {
-        console.log("Pushed to queue."); 
+        logger.info("%s: Adding track to queue, %s", this.playQueueId, title)
         this.queue.push({title:title, link:link});
         this.eventEmitter.emit('process');
     }
@@ -93,11 +107,12 @@ export class playQueue {
     }
     async processQueue()
     {
-        console.log(this.workingJob)
         if(this.workingJob)
         {
+            this.stale = false
             return;
         }
+        logger.info("%s: Working new job.", this.playQueueId)
         const job = this.queue.shift()
         if(job == undefined)
         {
@@ -106,11 +121,10 @@ export class playQueue {
         this.workingJob = true;
         this.textChannel.send("Playing: " + job.title);
         this.playNext(job.link);
-        console.log("Waiting for song to finish playing.")
         await new Promise((resolve, reject)=>{
             this.audioPlayer.once(AudioPlayerStatus.Idle, resolve);
         });
-        console.log("Song finished!");
+        logger.info("%s: Job finished.", this.playQueueId)
         this.workingJob = false;
         this.eventEmitter.emit('process');
     }
@@ -119,6 +133,7 @@ export class playQueue {
     {
         if(this.connection == undefined || this.connection.state.status != VoiceConnectionStatus.Ready)
         {
+            logger.info("%s: Connecting to voice channel", this.playQueueId)
             this.connection = joinVoiceChannel({
                 channelId: this.channelId,
                 guildId: this.guild.id,
@@ -130,25 +145,55 @@ export class playQueue {
             try {
                 await entersState(this.connection, VoiceConnectionStatus.Ready, 20e3);
             } catch (error) {
-                console.warn(error);
+                logger.error("%s: Failed to connect to channel.", this.playQueueId)
+                logger.error(error)
                 return;
             }   
         }
-        console.log(this.connection.joinConfig)
+
         this.stream = ytdl(url, {
             quality: 'highestaudio'
         });
         this.stream.removeAllListeners('progress');
+
         try{
             this.resource = createAudioResource(this.stream);
-            console.log("Created resource.");
+            logger.info("%s: Creating new resource.", this.playQueueId)
         }
-        catch
+        catch(error)
         {
-            console.error("Failed to create resource.");
+            logger.error("%s: Failed to create resource!", this.playQueueId)
+            logger.error(error);
         }
         this.connection.subscribe(this.audioPlayer);
         this.audioPlayer.play(this.resource);
         this.eventEmitter.emit('process') 
+    }
+
+    cleanup()
+    {
+        logger.info("%s: Performing cleanup.", this.playQueueId)
+        this.stream.destroy()
+        clearTimeout(this.idleCheckInterval) 
+        this.connection.destroy()
+        this.eventEmitter.removeAllListeners()
+    }
+
+    checkForIdle()
+    {
+        if(this.workingJob)
+        {
+            this.idleCount = 0
+            this.stale = false
+        }
+        else
+        {
+            this.idleCount = this.idleCount + 1;
+            if(this.idleCount >= config.idle_time)
+            {
+                logger.info("%s: Queue is now stale.", this.playQueueId)
+                this.stale = true
+            }
+        }
     }
 }
