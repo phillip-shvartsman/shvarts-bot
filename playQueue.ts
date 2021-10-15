@@ -3,6 +3,7 @@ import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, creat
 import { ApplicationCommandPermissionsManager, Client, Guild, GuildManager, Intents, TextBasedChannel, TextBasedChannels } from 'discord.js';
 import * as events from "events"
 import internal from 'stream';
+import winston from 'winston';
 import ytdl from 'ytdl-core'
 import config from './config.json'
 import {logger} from './logger'
@@ -23,11 +24,10 @@ export class playQueue {
     idleCount : number;
     stale : boolean;
     idleCheckInterval : NodeJS.Timeout;
-    playQueueId : string;
+    currentJob : {title:string, link:string}; 
+    playQueueLogger : winston.Logger;
     constructor(textChannel:TextBasedChannels, guild:Guild, channelId:string)
     {
-        this.playQueueId = guild.id + channelId
-        logger.info('%s: Creating new play queue', this.playQueueId)
         this.textChannel = textChannel;
         this.guild = guild;
         this.channelId = channelId;
@@ -36,8 +36,10 @@ export class playQueue {
         this.workingJob = false;
         this.audioPlayer = createAudioPlayer();
         this.queue = []
+        this.currentJob = null
         this.idleCount = 0
         this.stale = false
+        this.playQueueLogger = logger.child({guildId:guild.id,channelId:channelId})
 
         this.boundProcessQueue = this.processQueue.bind(this)
         this.boundIdleCheck = this.checkForIdle.bind(this)
@@ -47,20 +49,25 @@ export class playQueue {
 
     getQueueString() : string
     {
-        logger.info("%s: Getting queue string") 
-        if(this.queue == undefined || this.queue.length == 0)
+        this.playQueueLogger.info("Getting queue string") 
+        if(this.currentJob == null)
         {
-            return "Queue is empty!";
+            return "Nothing playing."
         }
         else
         {
-            var replySting = "Current song queue:\n"
+            var replyString = "Currently playing:\n"
+            replyString = replyString + this.currentJob["title"] + "\n"
             for(var i = 0 ; i < this.queue.length ; i++)
             {
+                if(i==0)
+                {
+                    replyString = replyString + "\nQueue: \n"
+                }
                 let entry = i + ": " + this.queue[i]["title"] + "\n"
-                replySting = replySting + entry; 
+                replyString = replyString + entry; 
             }
-            return replySting;
+            return replyString;
         }
     }
 
@@ -71,7 +78,7 @@ export class playQueue {
 
     addToQueue(title:string,link:string) : void
     {
-        logger.info("%s: Adding track to queue, %s", this.playQueueId, title)
+        this.playQueueLogger.info("Adding track to queue", {title:title})
         this.queue.push({title:title, link:link});
         this.eventEmitter.emit('process');
     }
@@ -85,7 +92,13 @@ export class playQueue {
     {
         if(this.audioPlayer.state.status == AudioPlayerStatus.Playing)
         {
-            this.audioPlayer.pause()
+            try{
+                this.audioPlayer.pause()
+            } catch(err)
+            {
+                this.playQueueLogger.error(err);
+                return false
+            }
             return true
         }
         return false;
@@ -105,6 +118,7 @@ export class playQueue {
     {
         this.audioPlayer.stop()
     }
+
     async processQueue()
     {
         if(this.workingJob)
@@ -112,19 +126,21 @@ export class playQueue {
             this.stale = false
             return;
         }
-        logger.info("%s: Working new job.", this.playQueueId)
-        const job = this.queue.shift()
-        if(job == undefined)
+        this.playQueueLogger.debug("Popping job off of queue.")
+        this.currentJob = this.queue.shift()
+        if(this.currentJob == undefined)
         {
+            this.playQueueLogger.error("Job is undefined!")
             return;
         }
         this.workingJob = true;
-        this.textChannel.send("Playing: " + job.title);
-        this.playNext(job.link);
+        this.textChannel.send("Playing: " + this.currentJob.title);
+        this.playNext(this.currentJob.link);
         await new Promise((resolve, reject)=>{
             this.audioPlayer.once(AudioPlayerStatus.Idle, resolve);
         });
-        logger.info("%s: Job finished.", this.playQueueId)
+        this.playQueueLogger.info("Job finished.")
+        this.currentJob = null
         this.workingJob = false;
         this.eventEmitter.emit('process');
     }
@@ -133,37 +149,48 @@ export class playQueue {
     {
         if(this.connection == undefined || this.connection.state.status != VoiceConnectionStatus.Ready)
         {
-            logger.info("%s: Connecting to voice channel", this.playQueueId)
-            this.connection = joinVoiceChannel({
-                channelId: this.channelId,
-                guildId: this.guild.id,
-                //@tts-ignore
-                adapterCreator: this.guild.voiceAdapterCreator as unknown as DiscordGatewayAdapterCreator,
-            });
-        
+            this.playQueueLogger.info("Connecting to voice channel")
+            try{
+                this.connection = joinVoiceChannel({
+                    channelId: this.channelId,
+                    guildId: this.guild.id,
+                    //@tts-ignore
+                    adapterCreator: this.guild.voiceAdapterCreator as unknown as DiscordGatewayAdapterCreator,
+                });
+            } catch(err) {
+                this.playQueueLogger.error("Failed to connect to voice channel.")
+                this.playQueueLogger.error(err)
+            }
             // Make sure the connection is ready before processing the user's request
             try {
                 await entersState(this.connection, VoiceConnectionStatus.Ready, 20e3);
             } catch (error) {
-                logger.error("%s: Failed to connect to channel.", this.playQueueId)
-                logger.error(error)
+                this.playQueueLogger.error("Failed to connect to channel.")
+                this.playQueueLogger.error(error)
                 return;
             }   
         }
-
-        this.stream = ytdl(url, {
-            quality: 'highestaudio'
-        });
+        try{
+            this.playQueueLogger.debug("Creating new stream object.")
+            this.stream = ytdl(url, {
+                quality: 'highestaudio'
+            });
+        } catch(err)
+        {
+            this.playQueueLogger.error(err);
+        }
         this.stream.removeAllListeners('progress');
-
+        this.playQueueLogger.info("Waiting for progress on audio stream before opening with log.")
+        await new Promise((resolve,reject) => this.stream.on("progress", resolve));
+        
         try{
             this.resource = createAudioResource(this.stream);
-            logger.info("%s: Creating new resource.", this.playQueueId)
+            this.playQueueLogger.info("Creating new resource.")
         }
         catch(error)
         {
-            logger.error("%s: Failed to create resource!", this.playQueueId)
-            logger.error(error);
+            this.playQueueLogger.error("Failed to create resource!")
+            this.playQueueLogger.error(error);
         }
         this.connection.subscribe(this.audioPlayer);
         this.audioPlayer.play(this.resource);
@@ -172,7 +199,7 @@ export class playQueue {
 
     cleanup()
     {
-        logger.info("%s: Performing cleanup.", this.playQueueId)
+        this.playQueueLogger.info("Performing cleanup.")
         this.stream.destroy()
         clearTimeout(this.idleCheckInterval) 
         this.connection.destroy()
@@ -191,7 +218,7 @@ export class playQueue {
             this.idleCount = this.idleCount + 1;
             if(this.idleCount >= config.idle_time)
             {
-                logger.info("%s: Queue is now stale.", this.playQueueId)
+                this.playQueueLogger.info("Queue is now stale.")
                 this.stale = true
             }
         }

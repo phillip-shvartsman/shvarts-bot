@@ -43,7 +43,7 @@ async function addGuilds(gM : GuildManager)
     {
         let guild : Guild = await gM.fetch({guild:guildCache.id, withCounts:false});
         rest.put(Routes.applicationGuildCommands(discordConfig.clientId, guildCache.id), { body: commands })
-    	.then(() => logger.info('addGuilds: Successfully registered application commands with guild ID: %d', guildCache.id))
+    	.then(() => logger.info('addGuilds: Successfully registered application commands', {guildID:guildCache.id}))
     	.catch(err=>{
             logger.error(err)
         });
@@ -52,38 +52,39 @@ async function addGuilds(gM : GuildManager)
 }
 
 app.listen(port, () => {
-    logger.info("Listening on : %d", port);
+    logger.info("App is listening", {port:port});
 });
 
 client.once('ready', () => {
-	logger.info('Ready!');
+	logger.info('Discord client is ready.');
 });
 
 client.on('interactionCreate', async interaction => {
 	if (!interaction.isCommand()) return;
+    interaction.deferReply()
     const { commandName } = interaction;
     var playQueueIndex = -1;
     const guild = client.guilds.cache.get(interaction.guildId);
     const member = await guild.members.fetch(interaction.member.user.id);
     const voiceChannelId = member.voice.channelId;
-    logger.info("interaction: %s guild: %s", commandName, guild.id)
+    logger.info("interaction", {commandName:commandName, guildId:guild.id})
     if(voiceChannelId == null)
     {
-        interaction.reply("Please join a voice channel!")
+        interaction.followUp("Please join a voice channel!")
         return
     }
     for(var i : number = 0; i < playQueues.length; i++)
     {
         if(playQueues[i].getChannelId() == voiceChannelId)
         {
-            playQueueIndex = playQueues.length - 1;
+            playQueueIndex = i;
         }
     }
     if(playQueueIndex == -1)
     {
         if(commandName === 'kick-bot' || commandName === 'next' || commandName === 'print-queue' || commandName === 'pause' || commandName === 'unpause')
         {
-            interaction.reply("The bot has not joined your current voice channel!");
+            interaction.followUp("The bot has not joined your current voice channel!");
             return
         }
         logger.info("interaction: Creating new queue");
@@ -99,50 +100,50 @@ client.on('interactionCreate', async interaction => {
         }
         catch
         {
-            interaction.reply("Failed to find song with this link.");
+            interaction.followUp("Failed to find song with this link.");
             return
         }
         var title = result.videoDetails.title;
         playQueues[playQueueIndex].addToQueue(title,link)
         var queueLength = playQueues[playQueueIndex].getQueueSize()
-        interaction.reply("Added " + title + " to queue, position " + queueLength + ".")
+        interaction.followUp("Added " + title + " to queue, position " + queueLength + ".")
 	}
     else if (commandName === "print-queue")
     {
-       interaction.reply(playQueues[playQueueIndex].getQueueString()) 
+       interaction.followUp(playQueues[playQueueIndex].getQueueString()) 
     }
     else if (commandName === "next")
     {
-        await interaction.reply("Stopping current song and playing next.");
+        await interaction.followUp("Stopping current song and playing next.");
         playQueues[playQueueIndex].next()
     }
     else if(commandName === "test-queue")
     {
         var link = "https://www.youtube.com/watch?v=0bOUOCo6NLQ" 
-        var result; 
+        var result;
         try 
         {
             result = await ytdl.getInfo(link);
         }
         catch
         {
-            interaction.reply("Link broken!");
+            interaction.followUp("Link broken!");
             return
         }
         var title = result.videoDetails.title;
         playQueues[playQueueIndex].addToQueue(title,link)
         var queueLength = playQueues[playQueueIndex].getQueueSize()
-        interaction.reply("Added " + title + " to queue, position " + queueLength + ".")
+        interaction.followUp("Added " + title + " to queue, position " + queueLength + ".")
     }
     else if (commandName === "pause") 
     {
         if(playQueues[playQueueIndex].pause())
         {
-            interaction.reply("Playback paused.");
+            interaction.followUp("Playback paused.");
         }     
         else
         {
-            interaction.reply("Nothing playing.");
+            interaction.followUp("Nothing playing.");
         }
         
     }
@@ -150,16 +151,16 @@ client.on('interactionCreate', async interaction => {
     {
         if(playQueues[playQueueIndex].unpause())
         {
-            interaction.reply("Playback resumed.");
+            interaction.followUp("Playback resumed.");
         }     
         else
         {
-            interaction.reply("Nothing paused.");
+            interaction.followUp("Nothing paused.");
         }        
     }
     else if (commandName === "kick-bot")
     {
-        interaction.reply("Kicking bot from voice channel");
+        interaction.followUp("Kicking bot from voice channel");
         playQueues[playQueueIndex].cleanup();
     }
 });
@@ -170,7 +171,7 @@ client.login(discordConfig.token).then(result => {
 
 client.on("guildCreate", guild =>{
     rest.put(Routes.applicationGuildCommands(discordConfig.clientId, guild.id), { body: commands })
-    .then(() => logger.info('guildCreate: Successfully registered application commands with guild ID: %d', guild.id))
+    .then(() => logger.info('guildCreate: Successfully registered application',{guildId:guild.id}))
     .catch(err=>{
         logger.error(err)
     });
@@ -189,9 +190,11 @@ async function checkForStaleQueues()
         }
     }
     logger.debug("Performing 'garbage collection' of stale queues.")
-    logger.info("Deleted %d queues", staleCount)
+    if(staleCount > 0)
+    {
+        logger.info("Deleted",{staleCount:staleCount});
+    }
 }
-
 setInterval(checkForStaleQueues,60000);
 
 logger.debug(voice.generateDependencyReport());
