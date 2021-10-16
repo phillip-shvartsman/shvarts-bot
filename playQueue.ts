@@ -26,6 +26,8 @@ export class playQueue {
     idleCheckInterval : NodeJS.Timeout;
     currentJob : {title:string, link:string}; 
     playQueueLogger : winston.Logger;
+    mbDownloaded : number
+    downloadGrab : number
     constructor(textChannel:TextBasedChannels, guild:Guild, channelId:string)
     {
         this.textChannel = textChannel;
@@ -40,7 +42,7 @@ export class playQueue {
         this.idleCount = 0
         this.stale = false
         this.playQueueLogger = logger.child({guildId:guild.id,channelId:channelId})
-
+        this.mbDownloaded = 0
         this.boundProcessQueue = this.processQueue.bind(this)
         this.boundIdleCheck = this.checkForIdle.bind(this)
         this.eventEmitter.on('process',this.boundProcessQueue)
@@ -182,7 +184,10 @@ export class playQueue {
         this.stream.removeAllListeners('progress');
         this.playQueueLogger.info("Waiting for progress on audio stream before opening with log.")
         await new Promise((resolve,reject) => this.stream.on("progress", resolve));
-        
+        this.stream.on('progress', (chunkLength, downloaded, total) => {
+            this.mbDownloaded = this.mbDownloaded + ((chunkLength / 1024) / 1024)       
+            this.playQueueLogger.debug("progress on download",{mbDownloaded:this.mbDownloaded.toFixed(2)})
+        });
         try{
             this.resource = createAudioResource(this.stream);
             this.playQueueLogger.info("Creating new resource.")
@@ -216,6 +221,7 @@ export class playQueue {
         else
         {
             this.idleCount = this.idleCount + 1;
+            this.playQueueLogger.info("Incrementing idle count",{idleCount:this.idleCount})
             if(this.idleCount >= config.idle_time)
             {
                 this.playQueueLogger.info("Queue is now stale.")

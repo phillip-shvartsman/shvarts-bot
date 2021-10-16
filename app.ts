@@ -21,6 +21,8 @@ var playQueues : playQueue[] = []
 const app = express();
 const port = 3000;
 
+var mbDownloaded = 0;
+
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v9');
@@ -32,7 +34,8 @@ const commands = [
     new SlashCommandBuilder().setName('print-queue').setDescription('Print the current queue'),
     new SlashCommandBuilder().setName('pause').setDescription('pause current song'),
     new SlashCommandBuilder().setName('unpause').setDescription('unpause current song'),
-    new SlashCommandBuilder().setName('kick-bot').setDescription('kick the bot from the current voice channel')
+    new SlashCommandBuilder().setName('kick-bot').setDescription('kick the bot from the current voice channel'),
+    new SlashCommandBuilder().setName('stats').setDescription('get stats for this bot')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '9' }).setToken(discordConfig.token);
@@ -82,7 +85,7 @@ client.on('interactionCreate', async interaction => {
     }
     if(playQueueIndex == -1)
     {
-        if(commandName === 'kick-bot' || commandName === 'next' || commandName === 'print-queue' || commandName === 'pause' || commandName === 'unpause')
+        if(commandName === 'kick-bot' || commandName === 'next' || commandName === 'print-queue' || commandName === 'pause' || commandName === 'unpause' || commandName === 'stats')
         {
             interaction.followUp("The bot has not joined your current voice channel!");
             return
@@ -163,6 +166,10 @@ client.on('interactionCreate', async interaction => {
         interaction.followUp("Kicking bot from voice channel");
         playQueues[playQueueIndex].cleanup();
     }
+    else if (commandName === 'stats')
+    {
+        interaction.followUp("ShvartsBot has downloaded " + mbDownloaded.toFixed(2) +"MB of audio.")
+    }
 });
 
 client.login(discordConfig.token).then(result => {
@@ -177,11 +184,14 @@ client.on("guildCreate", guild =>{
     });
 });
 
-async function checkForStaleQueues()
+async function processQueues()
 {
     var staleCount = 0;
     for(var i : number = 0 ; i < playQueues.length ; i++)
     {
+        mbDownloaded = mbDownloaded + playQueues[i].mbDownloaded
+        playQueues[i].mbDownloaded = 0
+
         if(playQueues[i].stale)
         {
             staleCount++
@@ -195,6 +205,6 @@ async function checkForStaleQueues()
         logger.info("Deleted",{staleCount:staleCount});
     }
 }
-setInterval(checkForStaleQueues,60000);
+setInterval(processQueues,30000);
 
 logger.debug(voice.generateDependencyReport());
