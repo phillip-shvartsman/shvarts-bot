@@ -15,6 +15,7 @@ const ffmpeg = require('fluent-ffmpeg');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 import * as voice from '@discordjs/voice';
+import { format } from 'path/posix';
 
 var playQueues : playQueue[] = []
 
@@ -94,20 +95,31 @@ client.on('interactionCreate', async interaction => {
         playQueues.push(new playQueue(interaction.channel, guild, voiceChannelId))
         playQueueIndex = playQueues.length - 1;
     }
-    if (commandName === 'queue') {
-    
+    if (commandName === 'queue') 
+    {    
         var link = interaction.options.getString('link');
-        var result;
-        try {
-            result = await ytdl.getInfo(link);
+        if(link == undefined || link == null)
+        {
+            interaction.followUp("Failed to find song with this link.");
+            return 
         }
+        var id = YouTubeGetID(link) 
+        var result : ytdl.videoInfo;
+        try {
+            result = await ytdl.getInfo(id);
+            if(!checkForOpus(result))
+            {
+                interaction.followUp("No good audio format found for streaming try a different video.")
+                return
+            }
+       }
         catch
         {
             interaction.followUp("Failed to find song with this link.");
             return
         }
         var title = result.videoDetails.title;
-        playQueues[playQueueIndex].addToQueue(title,link)
+        playQueues[playQueueIndex].addToQueue(title,id)
         var queueLength = playQueues[playQueueIndex].getQueueSize()
         interaction.followUp("Added " + title + " to queue, position " + queueLength + ".")
 	}
@@ -123,10 +135,15 @@ client.on('interactionCreate', async interaction => {
     else if(commandName === "test-queue")
     {
         var link = "https://www.youtube.com/watch?v=0bOUOCo6NLQ" 
-        var result;
+        var result : ytdl.videoInfo;
         try 
         {
-            result = await ytdl.getInfo(link);
+            result = await ytdl.getInfo(link, );
+            if(!checkForOpus(result))
+            {
+                interaction.followUp("No good audio format found for streaming try a different video.")
+                return
+            }
         }
         catch
         {
@@ -199,11 +216,37 @@ async function processQueues()
             playQueues.splice(i,1);
         }
     }
-    logger.debug("Performing 'garbage collection' of stale queues.")
+    let newDate = new Date(Date.now());
+    logger.debug("Performing 'garbage collection' of stale queues.",{time:newDate.toLocaleTimeString('EST')})
     if(staleCount > 0)
     {
         logger.info("Deleted",{staleCount:staleCount});
     }
+}
+function YouTubeGetID(url){
+    var ID = '';
+    url = url.replace(/(>|<)/gi,'').split(/(vi\/|v=|\/v\/|youtu\.be\/|\/embed\/)/);
+    if(url[2] !== undefined) {
+        ID = url[2].split(/[^0-9a-z_\-]/i);
+        ID = ID[0];
+    }
+    else {
+        ID = url;
+    }
+    return ID;
+}
+
+function checkForOpus(result : ytdl.videoInfo)
+{
+    var hasOpus = false;
+    result.formats.forEach(format => {
+        if(format.mimeType == 'audio/webm; codecs="opus"' )
+        {
+            hasOpus = true
+        }
+    });
+    return hasOpus;
+    
 }
 setInterval(processQueues,30000);
 

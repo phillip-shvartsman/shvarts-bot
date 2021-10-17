@@ -1,7 +1,7 @@
 
 import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, DiscordGatewayAdapterCreator, entersState, joinVoiceChannel, VoiceConnection, VoiceConnectionDestroyedState, VoiceConnectionStatus } from '@discordjs/voice'; 
 import { ApplicationCommandPermissionsManager, Client, Guild, GuildManager, Intents, TextBasedChannel, TextBasedChannels } from 'discord.js';
-import * as events from "events"
+import {EventEmitter,once}from "events"
 import internal from 'stream';
 import winston from 'winston';
 import ytdl from 'ytdl-core'
@@ -11,7 +11,7 @@ import {logger} from './logger'
 export class playQueue {
     guild : Guild;
     channelId : string; 
-    eventEmitter : events.EventEmitter; 
+    eventEmitter : EventEmitter; 
     connection : VoiceConnection;
     workingJob : boolean;
     audioPlayer : AudioPlayer;
@@ -28,12 +28,13 @@ export class playQueue {
     playQueueLogger : winston.Logger;
     mbDownloaded : number
     downloadGrab : number
+    progressCounter : number
     constructor(textChannel:TextBasedChannels, guild:Guild, channelId:string)
     {
         this.textChannel = textChannel;
         this.guild = guild;
         this.channelId = channelId;
-        this.eventEmitter = new events.EventEmitter();
+        this.eventEmitter = new EventEmitter();
         this.connection = undefined;
         this.workingJob = false;
         this.audioPlayer = createAudioPlayer();
@@ -41,7 +42,8 @@ export class playQueue {
         this.currentJob = null
         this.idleCount = 0
         this.stale = false
-        this.playQueueLogger = logger.child({guildId:guild.id,channelId:channelId})
+        this.progressCounter = 0
+        this.playQueueLogger = logger.child({guildId:guild.id,channelId:channelId,currentJob:this.currentJob})
         this.mbDownloaded = 0
         this.boundProcessQueue = this.processQueue.bind(this)
         this.boundIdleCheck = this.checkForIdle.bind(this)
@@ -136,6 +138,7 @@ export class playQueue {
             return;
         }
         this.workingJob = true;
+        this.playQueueLogger = logger.child({guildId:this.guild.id,channelId:this.channelId,currentJob:this.currentJob})
         this.textChannel.send("Playing: " + this.currentJob.title);
         this.playNext(this.currentJob.link);
         await new Promise((resolve, reject)=>{
@@ -174,19 +177,44 @@ export class playQueue {
         }
         try{
             this.playQueueLogger.debug("Creating new stream object.")
-            this.stream = ytdl(url, {
-                quality: 'highestaudio'
+            var info = await ytdl.getInfo(url);
+            var audioFormats = ytdl.filterFormats(info.formats,'audioonly')
+            var itag = 0;
+            var bitrate = 0;
+            var chosenFormat : ytdl.videoFormat = null;
+            audioFormats.forEach(format=>{
+                if(format.mimeType == 'audio/webm; codecs="opus"' && format.audioBitrate > bitrate)
+                {
+                    bitrate = format.bitrate
+                    itag = format.itag
+                    chosenFormat = format
+                }
+            })
+            if(this.stream != undefined)
+            {
+                this.stream.removeAllListeners('progress');
+            }
+            this.stream = ytdl(url, 
+                {format:chosenFormat} 
+            );
+            this.stream.once('info',(info,videoFormat) => {
+                this.playQueueLogger.debug(videoFormat)
             });
+            await once(this.stream,'readable')
         } catch(err)
         {
             this.playQueueLogger.error(err);
         }
-        this.stream.removeAllListeners('progress');
         this.playQueueLogger.info("Waiting for progress on audio stream before opening with log.")
-        await new Promise((resolve,reject) => this.stream.on("progress", resolve));
         this.stream.on('progress', (chunkLength, downloaded, total) => {
             this.mbDownloaded = this.mbDownloaded + ((chunkLength / 1024) / 1024)       
-            this.playQueueLogger.debug("progress on download",{mbDownloaded:this.mbDownloaded.toFixed(2)})
+            this.progressCounter = this.progressCounter + 1
+            
+            if(this.progressCounter == 20)
+            {
+                this.progressCounter = 0
+                this.playQueueLogger.debug("progress on download",{mbDownloaded:this.mbDownloaded.toFixed(2),percent:(downloaded/total).toFixed(2)})
+            }
         });
         try{
             this.resource = createAudioResource(this.stream);
@@ -221,7 +249,6 @@ export class playQueue {
         else
         {
             this.idleCount = this.idleCount + 1;
-            this.playQueueLogger.info("Incrementing idle count",{idleCount:this.idleCount})
             if(this.idleCount >= config.idle_time)
             {
                 this.playQueueLogger.info("Queue is now stale.")

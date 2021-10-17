@@ -1,3 +1,4 @@
+import { info } from "console";
 import winston from "winston";
 
 export const logger = winston.createLogger({
@@ -10,6 +11,7 @@ export const logger = winston.createLogger({
       // - Write all logs with level `info` and below to `combined.log`
       //
       new winston.transports.Console(),
+      new winston.transports.File({filename:'info.log',level:'info' }),
       new winston.transports.File({ filename: 'full.log' }),
     ],
   });
