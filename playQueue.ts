@@ -259,7 +259,14 @@ export class playQueue {
 
     jumpInQueue(position: string)
     {
-            this.queue.slice(parseInt(position))
-            this.audioPlayer.stop()
+	try{
+    		this.queue = this.queue.slice(parseInt(position))
+    		this.audioPlayer.stop()
+	}
+	catch(err)
+    	{
+		this.playQueueLogger.error("Error jumping in queue");
+		this.playQueueLogger.error(err);
+	}
     }
 }

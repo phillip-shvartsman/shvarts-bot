@@ -37,7 +37,7 @@ const commands = [
     new SlashCommandBuilder().setName('unpause').setDescription('unpause current song'),
     new SlashCommandBuilder().setName('kick-bot').setDescription('kick the bot from the current voice channel'),
     new SlashCommandBuilder().setName('stats').setDescription('get stats for this bot'),
-    new SlashCommandBuilder().setName('jumpInQueue').setDescription('Skip all songs up until position provided').addStringOption(option => option.setName('position').setDescription('0 index based. The position of the first sond i 0 the second song is in position 1'))
+    new SlashCommandBuilder().setName('jump-in-queue').setDescription('Skip all songs up until position provided').addStringOption(option => option.setName('position').setDescription('0 index based. The position of the first sond i 0 the second song is in position 1'))
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '9' }).setToken(discordConfig.token);
@@ -135,7 +135,7 @@ client.on('interactionCreate', async interaction => {
     }
     else if(commandName === "test-queue")
     {
-        var link = "https://www.youtube.com/watch?v=0bOUOCo6NLQ" 
+	var link = "https://www.youtube.com/watch?v=0bOUOCo6NLQ" 
         var result : ytdl.videoInfo;
         try 
         {
@@ -188,11 +188,17 @@ client.on('interactionCreate', async interaction => {
     {
         interaction.followUp("ShvartsBot has downloaded " + mbDownloaded.toFixed(2) +"MB of audio.")
     }
-    else if (commandName === "jumpInQueue")
+    else if (commandName === "jump-in-queue")
     {
-        interaction.followUp("Skipped "+ interaction.options.getString('link') + "songs.")
+        let position : string = interaction.options.getString('position')
+	playQueues[playQueueIndex].jumpInQueue(position)
+	interaction.followUp("Skipped " + position + "songs.")
         interaction.followUp("New queue is now:")
         interaction.followUp(playQueues[playQueueIndex].getQueueString())
+    }
+    else
+    {
+    	interaction.followUp("Unsupported command");
     }
 });
 
