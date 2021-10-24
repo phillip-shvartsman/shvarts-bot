@@ -36,7 +36,8 @@ const commands = [
     new SlashCommandBuilder().setName('pause').setDescription('pause current song'),
     new SlashCommandBuilder().setName('unpause').setDescription('unpause current song'),
     new SlashCommandBuilder().setName('kick-bot').setDescription('kick the bot from the current voice channel'),
-    new SlashCommandBuilder().setName('stats').setDescription('get stats for this bot')
+    new SlashCommandBuilder().setName('stats').setDescription('get stats for this bot'),
+    new SlashCommandBuilder().setName('jumpInQueue').setDescription('Skip all songs up until position provided').addStringOption(option => option.setName('position').setDescription('0 index based. The position of the first sond i 0 the second song is in position 1'))
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '9' }).setToken(discordConfig.token);
@@ -186,6 +187,12 @@ client.on('interactionCreate', async interaction => {
     else if (commandName === 'stats')
     {
         interaction.followUp("ShvartsBot has downloaded " + mbDownloaded.toFixed(2) +"MB of audio.")
+    }
+    else if (commandName === "jumpInQueue")
+    {
+        interaction.followUp("Skipped "+ interaction.options.getString('link') + "songs.")
+        interaction.followUp("New queue is now:")
+        interaction.followUp(playQueues[playQueueIndex].getQueueString())
     }
 });
 

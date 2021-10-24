@@ -256,4 +256,10 @@ export class playQueue {
             }
         }
     }
+
+    jumpInQueue(position: string)
+    {
+            this.queue.slice(parseInt(position))
+            this.audioPlayer.stop()
+    }
 }
