@@ -1,4 +1,3 @@
-import express from 'express';
 import {logger} from './logger'
 
 import { ApplicationCommandPermissionsManager, Client, Guild, GuildManager, Intents, TextBasedChannels } from 'discord.js';
@@ -19,8 +18,6 @@ import { format } from 'path/posix';
 
 var playQueues : playQueue[] = []
 
-const app = express();
-const port = 3000;
 
 var mbDownloaded = 0;
 
@@ -54,10 +51,6 @@ async function addGuilds(gM : GuildManager)
 
     });
 }
-
-app.listen(port, () => {
-    logger.info("App is listening", {port:port});
-});
 
 client.once('ready', () => {
 	logger.info('Discord client is ready.');
